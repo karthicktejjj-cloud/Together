@@ -1,0 +1,3 @@
+- [x] Fix redundant brace in `VideoListScreen.kt`
+- [x] Verify build passes
+- [x] Create walkthrough
