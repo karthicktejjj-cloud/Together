@@ -15,7 +15,9 @@ class VideoRepository {
             MediaStore.Video.Media._ID,
             MediaStore.Video.Media.DISPLAY_NAME,
             MediaStore.Video.Media.DURATION,
-            MediaStore.Video.Media.SIZE
+            MediaStore.Video.Media.SIZE,
+            MediaStore.Video.Media.RESOLUTION,
+            MediaStore.Video.Media.DATA
         )
 
         val sortOrder = "${MediaStore.Video.Media.DATE_ADDED} DESC"
@@ -40,6 +42,12 @@ class VideoRepository {
             val sizeColumn =
                 cursor.getColumnIndexOrThrow(MediaStore.Video.Media.SIZE)
 
+            val resolutionColumn =
+                cursor.getColumnIndexOrThrow(MediaStore.Video.Media.RESOLUTION)
+
+            val pathColumn =
+                cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DATA)
+
             while (cursor.moveToNext()) {
 
                 val id = cursor.getLong(idColumn)
@@ -49,6 +57,10 @@ class VideoRepository {
                 val duration = cursor.getLong(durationColumn)
 
                 val size = cursor.getLong(sizeColumn)
+
+                val resolution = cursor.getString(resolutionColumn)
+
+                val path = cursor.getString(pathColumn)
 
                 val uri = ContentUris.withAppendedId(
                     MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
@@ -61,7 +73,9 @@ class VideoRepository {
                         title = title,
                         uri = uri,
                         duration = duration,
-                        size = size
+                        size = size,
+                        resolution = resolution,
+                        path = path
                     )
                 )
             }

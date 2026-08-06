@@ -11,13 +11,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import com.together.app.viewmodel.VideoViewModel
-import java.net.URLEncoder
 
 @Composable
 fun VideoListScreen(
     navController: NavHostController,
     viewModel: VideoViewModel = viewModel()
-){
+) {
 
     val context = LocalContext.current
     val videos by viewModel.videos.collectAsState()
@@ -45,37 +44,25 @@ fun VideoListScreen(
 
                 Card(
                     onClick = {
-                        val encodedUri = URLEncoder.encode(
-                            video.uri.toString(),
-                            "UTF-8"
-                        )
-
-                        navController.navigate("player/$encodedUri")
+                        navController.navigate("details/${video.id}")
                     },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 8.dp)
                 ) {
-                    run {
 
-                        Column(
-                            modifier = Modifier.padding(16.dp)
-                        ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp)
+                    ) {
 
-                            Text(video.title)
+                        Text(video.title)
 
-                            Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
 
-                            Text("${video.duration / 1000} sec")
-
-                        }
-
+                        Text("${video.duration / 1000} sec")
                     }
-
                 }
-
             }
-
         }
     }
 }

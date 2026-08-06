@@ -55,7 +55,7 @@ fun HomeScreen(
             title = "Watch Together",
             icon = Icons.Default.Wifi,
             onClick = {
-                // Coming soon
+                navController.navigate("nearby_rooms")
             }
         )
 
