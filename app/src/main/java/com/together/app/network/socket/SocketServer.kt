@@ -41,6 +41,7 @@ class SocketServer(
                     }
                 }
             } catch (e: Exception) {
+                Log.e("JOIN_TRACE", "Step FAILURE: Error starting server on port $port", e)
                 Log.e("SocketServer", "Error starting server", e)
             }
         }
@@ -55,16 +56,28 @@ class SocketServer(
 
         try {
             while (isRunning) {
-                val json = withContext(Dispatchers.IO) { reader.readLine() }
+                val json = try {
+                    withContext(Dispatchers.IO) { reader.readLine() }
+                } catch (e: Exception) {
+                    Log.e("JOIN_TRACE", "Error reading from client $remoteAddress: ${e.message}", e)
+                    null
+                }
+
                 if (json == null) {
-                    Log.d("SocketServer", "Client $remoteAddress ($clientId) closed the stream (readLine returned null)")
+                    Log.d("JOIN_TRACE", "Socket closed by Guest $remoteAddress (readLine returned null or error)")
+                    Log.d("SocketServer", "Client $remoteAddress ($clientId) closed the stream")
                     break
                 }
                 Log.d("SocketServer", "JSON received from $clientId: $json")
                 
                 val message = try {
-                    gson.fromJson(json, Message::class.java)
+                    val msg = gson.fromJson(json, Message::class.java)
+                    if (msg.type == MessageType.JOIN_ROOM) {
+                        Log.d("JOIN_TRACE", "Step 8: JSON parsed on Host from $remoteAddress")
+                    }
+                    msg
                 } catch (e: Exception) {
+                    Log.e("JOIN_TRACE", "Step 8 FAILURE: Failed to parse JSON from $remoteAddress: $json", e)
                     Log.e("SocketServer", "Failed to parse JSON from $remoteAddress: $json", e)
                     continue
                 }
@@ -93,9 +106,10 @@ class SocketServer(
                 }
             }
         } catch (e: Exception) {
+            Log.e("JOIN_TRACE", "Step FAILURE: Error handling client $clientId at $remoteAddress", e)
             Log.e("SocketServer", "Error handling client $clientId at $remoteAddress", e)
         } finally {
-            Log.d("SocketServer", "Finalizing client connection for $clientId at $remoteAddress")
+            Log.d("JOIN_TRACE", "Socket connection with $clientId at $remoteAddress finalized (closed)")
             clientId?.let { 
                 Log.d("SocketServer", "Removing client $it from clients map")
                 clients.remove(it) 

@@ -1,6 +1,6 @@
-- [ ] Fix white space issue in VideoPlayerScreen
-    - [ ] Update VideoPlayerScreen.kt to hide system bars and ensure full screen layout
-    - [ ] Update MainActivity.kt for better edge-to-edge support
-    - [ ] Ensure background is black for video player
+- [ ] Fix server restart bug in `WaitingRoomScreen.kt`
+    - [ ] Change `DisposableEffect` key to `roomId`
+    - [ ] Add host-only check for server startup
+- [ ] Stabilize `WaitingRoomScreen` UI
+    - [ ] Replace `room!!` with safe calls to prevent NPEs during state transitions
 - [ ] Build and verify
-- [ ] Refactor if necessary

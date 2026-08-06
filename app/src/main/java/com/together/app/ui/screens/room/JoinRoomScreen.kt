@@ -30,15 +30,26 @@ fun JoinRoomScreen(
 
     LaunchedEffect(isJoining) {
         if (isJoining) {
-            android.util.Log.d("JoinRoomScreen", "Join button clicked. Starting client connection to $ipAddress:$port")
+            android.util.Log.d("JoinRoomScreen", "Join button clicked. Starting connection loop to $ipAddress:$port")
             roomViewModel.startClient(ipAddress, port, roomCode = roomCode)
-            // Wait a bit for connection
-            kotlinx.coroutines.delay(1000)
+            
             val clientId = SocketManager.getInstance().getClientId() ?: "Guest"
-            android.util.Log.d("JOIN_TRACE", "Step 3: JOIN_ROOM message created for $name ($clientId)")
-            android.util.Log.d("JoinRoomScreen", "Sending JOIN_ROOM message for $name ($clientId)")
-            roomViewModel.sendMessage(Message(MessageType.JOIN_ROOM, clientId, name))
-            android.util.Log.d("JOIN_TRACE", "Step 5: Waiting for JOIN_SUCCESS (PARTICIPANT_LIST_UPDATED)")
+            
+            // CRITICAL FIX: Retry loop to ensure JOIN_ROOM message is sent and processed
+            while (isJoining && currentRoom == null) {
+                val joinMessage = Message(MessageType.JOIN_ROOM, clientId, name)
+                android.util.Log.d("JOIN_TRACE", "Step 3: JOIN_ROOM message created for $name ($clientId)")
+                
+                android.util.Log.d("JOIN_TRACE", "Attempting to send JOIN_ROOM message for $name ($clientId)")
+                val sent = roomViewModel.sendMessage(joinMessage)
+                if (sent) {
+                    android.util.Log.d("JOIN_TRACE", "Step 5: Waiting for JOIN_SUCCESS (PARTICIPANT_LIST_UPDATED)")
+                    android.util.Log.d("JoinRoomScreen", "JOIN_ROOM message sent. Waiting for response...")
+                } else {
+                    android.util.Log.w("JoinRoomScreen", "JOIN_ROOM message failed to send (socket likely not ready). Retrying...")
+                }
+                kotlinx.coroutines.delay(2000)
+            }
         }
     }
 

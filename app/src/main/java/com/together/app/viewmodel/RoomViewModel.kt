@@ -42,6 +42,7 @@ class RoomViewModel : ViewModel() {
         android.util.Log.d("JOIN_TRACE", "Step 8: Message received in ViewModel: ${message.type} from ${message.sender}")
         android.util.Log.d("RoomViewModel", "handleSocketMessage: ${message.type} from ${message.sender}")
         val gson = com.google.gson.Gson()
+        val myId = socketManager.getClientId() ?: "Host"
         when (message.type) {
             MessageType.HEARTBEAT -> {
                 android.util.Log.d("RoomViewModel", "Heartbeat received from ${message.sender}")
@@ -51,7 +52,16 @@ class RoomViewModel : ViewModel() {
                     android.util.Log.w("RoomViewModel", "PARTICIPANT_LIST_UPDATED received with null payload")
                     return
                 }
-                android.util.Log.d("JOIN_TRACE", "Step 11: JOIN_SUCCESS (PARTICIPANT_LIST_UPDATED) received on Guest/Host")
+                
+                val current = currentRoom.value
+                val isGuest = pendingRoomCode != null && (current == null || current.roomCode != pendingRoomCode)
+                
+                if (isGuest) {
+                    android.util.Log.d("JOIN_TRACE", "Step 11: JOIN_SUCCESS (PARTICIPANT_LIST_UPDATED) received on Guest")
+                } else {
+                    android.util.Log.d("JOIN_TRACE", "PARTICIPANT_LIST_UPDATED received on Host")
+                }
+                
                 android.util.Log.d("RoomViewModel", "Updating participant list: $payload")
                 val type = object : com.google.gson.reflect.TypeToken<List<com.together.app.model.Participant>>() {}.type
                 try {
@@ -93,8 +103,9 @@ class RoomViewModel : ViewModel() {
                     android.util.Log.w("RoomViewModel", "JOIN_ROOM ignored: currentRoom is null")
                     return
                 }
-                if (room.hostName == "Host" || room.participants.any { it.isHost && it.id == socketManager.getClientId() }) {
-                    // Host logic: update list and broadcast
+                
+                // Host logic: update list and broadcast
+                if (room.hostName == "Host" || room.participants.any { it.id == myId && it.isHost }) {
                     val currentParticipants = room.participants
                     val newParticipant = com.together.app.model.Participant(
                         id = message.sender,
@@ -102,6 +113,7 @@ class RoomViewModel : ViewModel() {
                         isHost = false,
                         isReady = false
                     )
+                    
                     if (currentParticipants.none { it.id == newParticipant.id }) {
                         val updatedList = currentParticipants + newParticipant
                         android.util.Log.d("JOIN_TRACE", "Step 9: Participant added on Host: ${newParticipant.name}")
@@ -109,7 +121,9 @@ class RoomViewModel : ViewModel() {
                         repository.updateParticipants(updatedList)
                         broadcastParticipantList(updatedList)
                     } else {
-                        android.util.Log.d("RoomViewModel", "Participant ${message.sender} already in list")
+                        android.util.Log.d("RoomViewModel", "Participant ${message.sender} already in list. Re-broadcasting list.")
+                        // CRITICAL FIX: Always broadcast list so Guest can finish joining even if they missed previous broadcast
+                        broadcastParticipantList(currentParticipants)
                     }
                 }
             }
@@ -183,9 +197,9 @@ class RoomViewModel : ViewModel() {
         socketManager.startClient(host, port)
     }
 
-    fun sendMessage(message: Message) {
+    fun sendMessage(message: Message): Boolean {
         android.util.Log.d("RoomViewModel", "sendMessage: ${message.type}")
-        socketManager.sendMessage(message)
+        return socketManager.sendMessage(message)
     }
 
     fun createRoom(room: Room) {

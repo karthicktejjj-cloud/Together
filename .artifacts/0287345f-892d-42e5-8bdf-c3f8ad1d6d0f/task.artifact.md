@@ -1,8 +1,7 @@
-# Task - Fix Host Crash on Guest Join
+# Task - Fix HTTP Streaming Root Cause
 
-Fix the network-on-main-thread and null safety issues causing the Host crash.
+Address the connection reset and missing HEAD support in the streaming server.
 
-- `[ ]` Fix `SocketServer.kt` (Background broadcast and null safety)
-- `[ ]` Fix `RoomViewModel.kt` (Null safety and robust parsing)
-- `[ ]` Fix `SocketClient.kt` (Minor cleanup)
-- `[ ]` Verify build and logic
+- [x] Modify `VideoServer.kt` to consume headers and support `HEAD` requests
+- [x] Verify build
+- [x] Update walkthrough

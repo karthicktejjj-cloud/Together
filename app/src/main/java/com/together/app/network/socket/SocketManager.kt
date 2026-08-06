@@ -39,10 +39,10 @@ class SocketManager private constructor() {
         client?.connect()
     }
 
-    fun sendMessage(message: Message) {
+    fun sendMessage(message: Message): Boolean {
         android.util.Log.d("SocketManager", "sendMessage: ${message.type} from ${message.sender}")
         server?.broadcast(message)
-        client?.sendMessage(message)
+        return client?.sendMessage(message) ?: true
     }
 
     fun stopAll() {

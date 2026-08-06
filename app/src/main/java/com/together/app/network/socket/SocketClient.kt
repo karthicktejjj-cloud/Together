@@ -40,9 +40,16 @@ class SocketClient(
 
                     while (isRunning) {
                         Log.d("SocketClient", "Waiting for message from server...")
-                        val json = withContext(Dispatchers.IO) { reader.readLine() }
+                        val json = try {
+                            withContext(Dispatchers.IO) { reader.readLine() }
+                        } catch (e: Exception) {
+                            Log.e("JOIN_TRACE", "Error reading from socket: ${e.message}", e)
+                            null
+                        }
+                        
                         if (json == null) {
-                            Log.d("SocketClient", "Server closed the connection (readLine returned null)")
+                            Log.d("JOIN_TRACE", "Socket closed by Server (readLine returned null or error)")
+                            Log.d("SocketClient", "Server closed the connection")
                             break
                         }
                         Log.d("SocketClient", "JSON received from server: $json")
@@ -55,10 +62,11 @@ class SocketClient(
                         }
                     }
                 } catch (e: Exception) {
+                    Log.e("JOIN_TRACE", "Step FAILURE: Connection error to $host:$port", e)
                     Log.e("SocketClient", "Networking error: Connection error, retrying in 2s...", e)
                     delay(2000)
                 } finally {
-                    Log.d("SocketClient", "Finalizing connection to $host:$port")
+                    Log.d("JOIN_TRACE", "Socket connection finalized (closed)")
                     try {
                         socket?.close()
                         Log.d("SocketClient", "Socket closed")
@@ -83,7 +91,11 @@ class SocketClient(
         }
     }
 
-    fun sendMessage(message: Message) {
+    fun sendMessage(message: Message): Boolean {
+        if (writer == null || socket?.isConnected != true) {
+            Log.w("SocketClient", "Cannot send message ${message.type}, writer is null or socket disconnected")
+            return false
+        }
         scope.launch {
             try {
                 val json = gson.toJson(message)
@@ -91,16 +103,14 @@ class SocketClient(
                     Log.d("JOIN_TRACE", "Step 4: JOIN_ROOM JSON sent: $json")
                 }
                 Log.d("SocketClient", "Sending message ${message.type}: $json")
-                if (writer != null) {
-                    writer?.println(json)
-                    Log.d("SocketClient", "Message sent successfully")
-                } else {
-                    Log.w("SocketClient", "Cannot send message, writer is null")
-                }
+                writer?.println(json)
+                Log.d("SocketClient", "Message sent successfully")
             } catch (e: Exception) {
+                Log.e("JOIN_TRACE", "Step 4 FAILURE: Error sending message ${message.type}", e)
                 Log.e("SocketClient", "Networking error: Error sending message", e)
             }
         }
+        return true
     }
 
     fun disconnect() {

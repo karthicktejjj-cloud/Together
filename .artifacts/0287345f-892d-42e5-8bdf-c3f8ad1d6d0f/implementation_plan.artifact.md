@@ -1,35 +1,31 @@
-# Implementation Plan - Fix Host Crash on Guest Join
+# Implementation Plan - Fix HTTP Streaming Root Cause
 
-Fix the crash occurring on the Host device immediately after a guest joins the room.
+Fix the connection failure between Guest and Host by correctly handling the HTTP request lifecycle.
 
-## User Review Required
+## Root Cause Analysis
+The identified root cause is a **TCP Reset (RST)** triggered by the server.
+1. The server reads only the first line of the HTTP request (`GET /video...`) and immediately starts sending the response.
+2. The remaining request headers (User-Agent, Range, etc.) stay in the socket's receive buffer.
+3. When the server finishes streaming and closes the socket while unread data exists in the buffer, the TCP stack sends an abortive **RST** packet instead of a clean **FIN**.
+4. The Guest (ExoPlayer) receives the RST, which causes it to discard any data received so far and report "Unable to connect" or "Connection reset".
 
-> [!IMPORTANT]
-> The primary cause of the crash is identified as a `NetworkOnMainThreadException` due to broadcasting messages on the Main thread. I will also address potential `NullPointerException` risks during message parsing.
+Additionally, the server does not handle `HEAD` requests, which many players use to probe for content length and type before starting the actual stream.
 
 ## Proposed Changes
 
 ### Network Layer
 
-#### [MODIFY] [SocketServer.kt](file:///C:/Users/ELCOT/AndroidStudioProjects/Together/app/src/main/java/com/together/app/network/socket/SocketServer.kt)
-- Wrap `broadcast` logic in `scope.launch` to ensure it runs on `Dispatchers.IO`.
-- Add a null check for `message.sender` before using it as a key in `clients` map.
-- Add more robust error logging in `handleClient`.
-
-#### [MODIFY] [SocketClient.kt](file:///C:/Users/ELCOT/AndroidStudioProjects/Together/app/src/main/java/com/together/app/network/socket/SocketClient.kt)
-- Minor cleanup and ensured error handling.
-
-### ViewModel Layer
-
-#### [MODIFY] [RoomViewModel.kt](file:///C:/Users/ELCOT/AndroidStudioProjects/Together/app/src/main/java/com/together/app/viewmodel/RoomViewModel.kt)
-- Add null safety checks for `message.payload` during JSON deserialization.
-- Add safety check for `currentRoom` being null when processing `JOIN_ROOM`.
+#### [MODIFY] [VideoServer.kt](file:///C:/Users/ELCOT/AndroidStudioProjects/Together/app/src/main/java/com/together/app/network/streaming/VideoServer.kt)
+- **Consume Headers**: Update `handleClient` to read all request headers until an empty line is encountered.
+- **Support HEAD**: Update request matching logic to accept both `GET` and `HEAD` requests.
+- **Conditional Streaming**: Modify `streamVideo` to only send the file body if the request was a `GET`.
 
 ## Verification Plan
 
 ### Automated Tests
-- Run `gradle build` to verify the project still compiles correctly.
+- Build the project using `gradle build`.
 
 ### Manual Verification
-- Verify that `SocketServer.broadcast` now consistently uses a background thread.
-- Verify that `JOIN_ROOM` handling on the Host is now guarded against null states.
+- **Host**: Start watching a video.
+- **Guest**: Join and verify playback starts immediately.
+- **Logs**: Verify `VideoServer` logs show headers being consumed and whether a `GET` or `HEAD` request was processed.

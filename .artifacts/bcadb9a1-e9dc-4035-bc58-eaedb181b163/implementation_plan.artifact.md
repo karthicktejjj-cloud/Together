@@ -1,55 +1,63 @@
-# Implementation Plan - Video Details Screen
+# Implementation Plan - Join Room and Room State Synchronization
 
-Implement a new `VideoDetailsScreen` to show video metadata before playback, following the Home -> Local Videos -> Video Details -> Video Player flow.
+Implement the logic to allow guests to join a room, synchronization of the participant list, and ready-state management using Sockets.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> I will be updating the `Video` model and `VideoRepository` to include resolution and file path information, as these were requested for the details screen but were missing from the initial implementation.
+> - I will be refactoring the `Room` model to use a `Participant` object instead of a simple `String` for the participant list.
+> - The host will broadcast the full participant list to all clients whenever it changes (join/leave/ready toggle).
+> - Guests will need to enter their name before joining a room.
 
 ## Proposed Changes
 
-### [Component: Model & Data]
+### [Component: Model]
 
-#### [MODIFY] [Video.kt](file:///C:/Users/ELCOT/AndroidStudioProjects/Together/app/src/main/java/com/together/app/model/Video.kt)
-- Add `resolution: String` and `path: String` fields to the `Video` data class.
+#### [NEW] [Participant.kt](file:///C:/Users/ELCOT/AndroidStudioProjects/Together/app/src/main/java/com/together/app/model/Participant.kt)
+- Data class: `id`, `name`, `isHost`, `isReady`.
 
-#### [MODIFY] [VideoRepository.kt](file:///C:/Users/ELCOT/AndroidStudioProjects/Together/app/src/main/java/com/together/app/data/repository/VideoRepository.kt)
-- Update MediaStore projection to include `RESOLUTION` and `DATA`.
-- Map these new fields into the `Video` objects.
+#### [MODIFY] [Room.kt](file:///C:/Users/ELCOT/AndroidStudioProjects/Together/app/src/main/java/com/together/app/model/Room.kt)
+- Change `participants: List<String>` to `participants: List<Participant>`.
+
+### [Component: Networking - Socket]
+
+#### [MODIFY] [MessageType.kt](file:///C:/Users/ELCOT/AndroidStudioProjects/Together/app/src/main/java/com/together/app/network/socket/MessageType.kt)
+- Add `PARTICIPANT_LIST_UPDATED` and `USER_READY`.
+
+#### [MODIFY] [SocketServer.kt](file:///C:/Users/ELCOT/AndroidStudioProjects/Together/app/src/main/java/com/together/app/network/socket/SocketServer.kt)
+- Update `handleClient` to manage `Participant` objects.
+- On `JOIN_ROOM`: Add participant, update list, broadcast `PARTICIPANT_LIST_UPDATED`.
+- On `HEARTBEAT` (or timeout): Detect disconnects, remove participant, broadcast `PARTICIPANT_LIST_UPDATED`.
+- On `USER_READY`: Update participant `isReady`, broadcast `PARTICIPANT_LIST_UPDATED`.
+
+### [Component: ViewModel]
+
+#### [MODIFY] [RoomViewModel.kt](file:///C:/Users/ELCOT/AndroidStudioProjects/Together/app/src/main/java/com/together/app/viewmodel/RoomViewModel.kt)
+- Add logic to update `currentRoom` when `PARTICIPANT_LIST_UPDATED` is received.
+- Add `toggleReadyStatus()` function.
+
+#### [MODIFY] [RoomRepository.kt](file:///C:/Users/ELCOT/AndroidStudioProjects/Together/app/src/main/java/com/together/app/data/repository/RoomRepository.kt)
+- Add `updateParticipants(List<Participant>)` to update the state.
 
 ### [Component: UI Screens]
 
-#### [NEW] [VideoDetailsScreen.kt](file:///C:/Users/ELCOT/AndroidStudioProjects/Together/app/src/main/java/com/together/app/ui/screens/videos/VideoDetailsScreen.kt)
-- Create a Material 3 screen that displays the video details.
-- Show a placeholder for the thumbnail (or actual thumbnail if feasible, but I'll start with a placeholder as requested).
-- Implement "Play" and "Create Room" buttons.
-- "Play" will navigate to `VideoPlayerScreen`.
-- "Create Room" will navigate to a placeholder `CreateRoomScreen`.
+#### [MODIFY] [JoinRoomScreen.kt](file:///C:/Users/ELCOT/AndroidStudioProjects/Together/app/src/main/java/com/together/app/ui/screens/room/JoinRoomScreen.kt)
+- Add a text field for "Your Name".
+- Delay `JOIN_ROOM` message until the user enters their name and clicks "Join".
 
-#### [NEW] [CreateRoomScreen.kt](file:///C:/Users/ELCOT/AndroidStudioProjects/Together/app/src/main/java/com/together/app/ui/screens/room/CreateRoomScreen.kt)
-- Simple placeholder screen for the "Create Room" feature.
-
-#### [MODIFY] [VideoListScreen.kt](file:///C:/Users/ELCOT/AndroidStudioProjects/Together/app/src/main/java/com/together/app/videos/VideoListScreen.kt)
-- Change navigation from `player/$encodedUri` to `details/$videoId`.
-
-#### [DELETE] [VideoDetailsScreen.kt](file:///C:/Users/ELCOT/AndroidStudioProjects/Together/app/src/main/java/com/together/app/videos/VideoDetailsScreen.kt)
-- Remove the misplaced/incomplete file.
-
-### [Component: Navigation]
-
-#### [MODIFY] [AppNavigation.kt](file:///C:/Users/ELCOT/AndroidStudioProjects/Together/app/src/main/java/com/together/app/ui/screens/splash/AppNavigation.kt)
-- Add routes for `details/{videoId}` and `create_room`.
-- Pass `videoId` to `VideoDetailsScreen`.
+#### [MODIFY] [WaitingRoomScreen.kt](file:///C:/Users/ELCOT/AndroidStudioProjects/Together/app/src/main/java/com/together/app/ui/screens/room/WaitingRoomScreen.kt)
+- Update the participant list UI to show `isReady` status.
+- Add a "Ready" button for guests.
+- Enable "Start Watching" for the host only when at least one guest is connected.
 
 ## Verification Plan
 
 ### Automated Tests
-- Build the project using `./gradlew :app:assembleDebug`.
-- Fix any compilation errors related to the model change.
+- Build the project to ensure no compilation errors.
 
 ### Manual Verification
-- Verify navigation from Video List to Video Details.
-- Verify that Video Details shows the correct title, duration, size, resolution, and path.
-- Verify navigation from Video Details to Video Player.
-- Verify navigation from Video Details to Create Room placeholder.
+- **Host**: Create a room.
+- **Guest**: Discover the room, enter name, and join.
+- **Sync**: Verify both devices see the updated participant list.
+- **Ready State**: Toggle "Ready" on Guest and verify Host sees the change.
+- **Disconnect**: Kill the Guest app and verify Host sees the participant removed.
