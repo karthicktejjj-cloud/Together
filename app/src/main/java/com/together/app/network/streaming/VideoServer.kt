@@ -16,40 +16,49 @@ class VideoServer(
 ) {
     private var serverSocket: ServerSocket? = null
     private var isRunning = false
+    // Use a reusable CoroutineScope that we don't cancel in stop()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var serverJob: Job? = null
     private var videoUri: Uri? = null
 
     fun start(uri: Uri) {
+        Log.d("VideoServer", "VideoServer: START requested")
         this.videoUri = uri
+        
+        // Ensure any existing server loop is stopped before starting a new one
+        stop()
+        
         isRunning = true
-        scope.launch {
+        serverJob = scope.launch {
             try {
-                // Reliability fix: ensure any previous socket is closed
-                serverSocket?.close()
-                
-                Log.d("VideoServer", "Attempting to start video server on port $port")
+                Log.d("VideoServer", "VideoServer: Listening on port $port")
                 serverSocket = ServerSocket(port)
                 
                 val hostIp = NetworkUtils.getLocalIpAddress(context) ?: "Unknown"
-                Log.d("VideoServer", "Video server SUCCESSFULLY started")
-                Log.d("VideoServer", ">> Host IP: $hostIp")
-                Log.d("VideoServer", ">> Listening Port: $port")
-                Log.d("VideoServer", ">> Video Path: $uri")
+                Log.d("VideoServer", "Video server SUCCESSFULLY started at http://$hostIp:$port/video")
                 
-                while (isRunning) {
-                    val clientSocket = serverSocket?.accept() ?: break
-                    Log.d("VideoServer", "Accepted new connection from: ${clientSocket.remoteSocketAddress}")
+                while (isRunning && isActive) {
+                    val clientSocket = try {
+                        serverSocket?.accept()
+                    } catch (e: Exception) {
+                        null
+                    } ?: break
+                    
+                    Log.d("VideoServer", "VideoServer: Client connected from ${clientSocket.remoteSocketAddress}")
                     handleClient(clientSocket)
                 }
             } catch (e: Exception) {
-                Log.e("VideoServer", "Networking error: Critical failure in video server startup", e)
+                if (isRunning) {
+                    Log.e("VideoServer", "VideoServer: Critical failure in video server startup", e)
+                }
+            } finally {
+                Log.d("VideoServer", "VideoServer: Server loop exited")
             }
         }
     }
 
     private fun handleClient(socket: Socket) {
         val remoteAddress = socket.remoteSocketAddress
-        Log.d("VideoServer", "Connection started: $remoteAddress")
         scope.launch {
             try {
                 val input = socket.getInputStream()
@@ -57,7 +66,10 @@ class VideoServer(
                 val requestLine = reader.readLine()
                 Log.d("VideoServer", "HTTP request from $remoteAddress: $requestLine")
 
-                if (requestLine == null) return@launch
+                if (requestLine == null) {
+                    socket.close()
+                    return@launch
+                }
 
                 var rangeHeader: String? = null
                 var line: String? = reader.readLine()
@@ -84,7 +96,6 @@ class VideoServer(
             } catch (e: Exception) {
                 Log.e("VideoServer", "Networking error: Unexpected error handling client $remoteAddress", e)
             } finally {
-                Log.d("VideoServer", "Closing connection for client: $remoteAddress")
                 try {
                     socket.close()
                 } catch (_: Exception) {
@@ -134,7 +145,7 @@ class VideoServer(
                         }
                         isPartial = true
                     }
-                } catch (e: Exception) {
+                } catch (_: Exception) {
                     Log.e("VideoServer", "Error parsing range header: $rangeHeader")
                     isPartial = false
                 }
@@ -184,7 +195,6 @@ class VideoServer(
                         remaining -= bytesRead
                     }
                     output.flush()
-                    Log.d("VideoServer", "Streaming completed for range $start-$end")
                 }
             }
         } catch (e: Exception) {
@@ -201,10 +211,24 @@ class VideoServer(
     }
 
     fun stop() {
+        Log.d("VideoServer", "VideoServer: STOP requested")
         isRunning = false
-        scope.launch(Dispatchers.IO) {
+        serverJob?.cancel()
+        try {
             serverSocket?.close()
-            scope.cancel()
+            Log.d("VideoServer", "VideoServer: SOCKET CLOSED")
+        } catch (e: Exception) {
+            Log.e("VideoServer", "VideoServer: Error closing socket", e)
         }
+        serverSocket = null
+        serverJob = null
+    }
+
+    /**
+     * Permanently destroys the server and its scope.
+     */
+    fun destroy() {
+        stop()
+        scope.cancel()
     }
 }

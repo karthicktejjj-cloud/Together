@@ -377,6 +377,6 @@ class RoomViewModel : ViewModel() {
         android.util.Log.d("RoomViewModel", "onCleared - stopping all socket operations")
         super.onCleared()
         socketManager.stopAll()
-        videoServer?.stop()
+        videoServer?.destroy()
     }
 }
