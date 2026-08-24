@@ -59,19 +59,20 @@ class VideoServer(
 
                 if (requestLine == null) return@launch
 
-                // Consume all remaining headers to ensure clean TCP close
-                var line: String?
-                while (reader.readLine().also { line = it } != null && line!!.isNotEmpty()) {
-                    // Just consuming
+                var rangeHeader: String? = null
+                var line: String? = reader.readLine()
+                while (!line.isNullOrEmpty()) {
+                    if (line.startsWith("Range:", ignoreCase = true)) {
+                        rangeHeader = line.substring("Range:".length).trim()
+                    }
+                    line = reader.readLine()
                 }
 
                 val isGet = requestLine.startsWith("GET /video") || requestLine.startsWith("GET /")
                 val isHead = requestLine.startsWith("HEAD /video") || requestLine.startsWith("HEAD /")
 
                 if (isGet || isHead) {
-                    Log.d("VideoServer", "Incoming request: ${if (isGet) "GET" else "HEAD"} /video")
-                    Log.d("VideoServer", "Matched request. Sending Response: 200 OK")
-                    streamVideo(socket.getOutputStream(), sendBody = isGet)
+                    streamVideo(socket.getOutputStream(), sendBody = isGet, rangeHeader = rangeHeader)
                 } else {
                     Log.w("VideoServer", "Unrecognized request from $remoteAddress: $requestLine. Sending Response: 404 Not Found")
                     send404(socket.getOutputStream())
@@ -86,60 +87,108 @@ class VideoServer(
                 Log.d("VideoServer", "Closing connection for client: $remoteAddress")
                 try {
                     socket.close()
-                } catch (e: Exception) {
-                    Log.e("VideoServer", "Networking error: Error closing socket for $remoteAddress", e)
+                } catch (_: Exception) {
+                    Log.e("VideoServer", "Networking error: Error closing socket for $remoteAddress")
                 }
             }
         }
     }
 
-    private fun streamVideo(output: OutputStream, sendBody: Boolean) {
+    private fun streamVideo(output: OutputStream, sendBody: Boolean, rangeHeader: String?) {
         val uri = videoUri ?: return
         var inputStream: InputStream? = null
         try {
-            inputStream = context.contentResolver.openInputStream(uri)
-            if (inputStream == null) {
+            // Obtain real file size from AssetFileDescriptor
+            val totalBytes = try {
+                context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
+            } catch (e: Exception) {
+                -1L
+            }
+
+            if (totalBytes <= 0) {
+                Log.e("VideoServer", "Could not determine file size for $uri")
                 send404(output)
                 return
             }
 
-            // Improve file size detection
-            val totalBytes = try {
-                context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: inputStream.available().toLong()
-            } catch (_: Exception) {
-                inputStream.available().toLong()
+            var start = 0L
+            var end = totalBytes - 1
+            var isPartial = false
+
+            if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
+                val rangeValue = rangeHeader.substring(6)
+                try {
+                    if (rangeValue.startsWith("-")) {
+                        // bytes=-500 (last 500 bytes)
+                        val suffix = rangeValue.substring(1).toLong()
+                        start = (totalBytes - suffix).coerceAtLeast(0)
+                        end = totalBytes - 1
+                        isPartial = true
+                    } else {
+                        val parts = rangeValue.split("-")
+                        start = parts[0].toLong()
+                        if (parts.size > 1 && parts[1].isNotEmpty()) {
+                            end = parts[1].toLong()
+                        } else {
+                            end = totalBytes - 1
+                        }
+                        isPartial = true
+                    }
+                } catch (e: Exception) {
+                    Log.e("VideoServer", "Error parsing range header: $rangeHeader")
+                    isPartial = false
+                }
             }
+
+            // Range validation
+            if (start < 0) start = 0
+            if (end >= totalBytes) end = totalBytes - 1
+            if (start > end) {
+                isPartial = false
+                start = 0
+                end = totalBytes - 1
+            }
+
+            val contentLength = end - start + 1
+            val status = if (isPartial) "HTTP/1.1 206 Partial Content" else "HTTP/1.1 200 OK"
             
-            Log.d("VideoServer", "Streaming headers for file size: $totalBytes bytes. Send body: $sendBody")
-            
-            // Send HTTP headers
-            val headers = "HTTP/1.1 200 OK\r\n" +
-                    "Content-Type: video/mp4\r\n" +
-                    "Content-Length: $totalBytes\r\n" +
-                    "Accept-Ranges: bytes\r\n" +
-                    "Connection: close\r\n\r\n"
-            output.write(headers.toByteArray())
+            val responseHeaders = StringBuilder()
+            responseHeaders.append("$status\r\n")
+            responseHeaders.append("Content-Type: video/mp4\r\n")
+            responseHeaders.append("Content-Length: $contentLength\r\n")
+            responseHeaders.append("Accept-Ranges: bytes\r\n")
+            if (isPartial) {
+                responseHeaders.append("Content-Range: bytes $start-$end/$totalBytes\r\n")
+            }
+            responseHeaders.append("Connection: close\r\n\r\n")
+
+            output.write(responseHeaders.toString().toByteArray())
             output.flush()
-            Log.d("VideoServer", "HTTP Response Headers Sent: 200 OK")
+
+            Log.d("VideoServer", "Sent headers: $status (Start: $start, End: $end, Size: $contentLength)")
 
             if (sendBody) {
-                // Stream file content
-                val buffer = ByteArray(64 * 1024) // 64KB buffer
-                var bytesRead: Int
-                var totalRead: Long = 0
-                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                    output.write(buffer, 0, bytesRead)
-                    totalRead += bytesRead
+                inputStream = context.contentResolver.openInputStream(uri)
+                if (inputStream != null) {
+                    if (start > 0) {
+                        inputStream.skip(start)
+                    }
+
+                    val buffer = ByteArray(64 * 1024)
+                    var remaining = contentLength
+                    while (remaining > 0) {
+                        val toRead = remaining.coerceAtMost(buffer.size.toLong()).toInt()
+                        val bytesRead = inputStream.read(buffer, 0, toRead)
+                        if (bytesRead == -1) break
+                        output.write(buffer, 0, bytesRead)
+                        remaining -= bytesRead
+                    }
+                    output.flush()
+                    Log.d("VideoServer", "Streaming completed for range $start-$end")
                 }
-                output.flush()
-                Log.d("VideoServer", "Streaming finished successfully. Total bytes sent: $totalRead")
             }
-        } catch (e: java.net.SocketException) {
-            Log.e("VideoServer", "Networking error: SocketException during file streaming", e)
-        } catch (e: java.io.IOException) {
-            Log.e("VideoServer", "Networking error: IOException during file streaming", e)
         } catch (e: Exception) {
-            Log.e("VideoServer", "Networking error: Unexpected error during file streaming", e)
+            Log.e("VideoServer", "Error during video streaming", e)
         } finally {
             inputStream?.close()
         }
