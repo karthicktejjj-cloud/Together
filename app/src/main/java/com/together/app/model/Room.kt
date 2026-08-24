@@ -18,5 +18,6 @@ data class Room(
 enum class RoomStatus {
     WAITING,
     WATCHING,
+    FINISHED,
     CLOSED
 }

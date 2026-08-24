@@ -11,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -18,6 +19,11 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import com.together.app.model.Room
 import com.together.app.model.RoomStatus
+import com.together.app.ui.components.TogetherButton
+import com.together.app.ui.components.TogetherCard
+import com.together.app.ui.theme.TogetherBackground
+import com.together.app.ui.theme.TogetherPrimary
+import com.together.app.ui.theme.TogetherSurface
 import com.together.app.viewmodel.RoomViewModel
 import com.together.app.viewmodel.VideoViewModel
 import java.util.UUID
@@ -39,125 +45,120 @@ fun CreateRoomScreen(
     val roomCode = remember { roomViewModel.generateRoomCode() }
 
     Scaffold(
+        containerColor = TogetherBackground,
         topBar = {
-            TopAppBar(
-                title = { Text("Create Room") },
+            CenterAlignedTopAppBar(
+                title = { Text("Create Room", fontWeight = FontWeight.Bold, color = Color.White) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
                     }
-                }
+                },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent)
             )
         }
     ) { paddingValues ->
         if (video == null) {
             Box(modifier = Modifier.fillMaxSize().padding(paddingValues), contentAlignment = Alignment.Center) {
-                Text("Video not found")
+                Text("Video not found", color = Color.White)
             }
         } else {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
-                    .padding(16.dp)
+                    .padding(horizontal = 24.dp)
                     .verticalScroll(rememberScrollState())
             ) {
-                // Video Info Section
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                // Video Summary Card
+                TogetherCard {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
-                                .size(80.dp)
-                                .background(Color.Gray, RoundedCornerShape(8.dp)),
+                                .size(60.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(TogetherPrimary.copy(alpha = 0.1f)),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text("🎬", fontSize = 32.sp)
+                            Text("🎬", fontSize = 24.sp)
                         }
                         Spacer(modifier = Modifier.width(16.dp))
                         Column {
-                            Text(
-                                text = video.title,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 2
-                            )
-                            Text(
-                                text = "Selected Video",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
+                            Text(video.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.White)
+                            Text("Selected Movie", style = MaterialTheme.typography.bodySmall, color = TogetherPrimary)
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(32.dp))
 
-                // Form Fields
-                OutlinedTextField(
+                // Input Fields
+                Text("Room Details", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.White)
+                
+                Spacer(modifier = Modifier.height(16.dp))
+
+                TogetherTextField(
                     value = roomName,
                     onValueChange = { roomName = it },
-                    label = { Text("Room Name") },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("e.g. Movie Night with Friends") }
+                    label = "Room Name",
+                    placeholder = "e.g. Friday Movie Night"
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                OutlinedTextField(
+                TogetherTextField(
                     value = hostName,
                     onValueChange = { hostName = it },
-                    label = { Text("Your Name (Host)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("e.g. John Doe") }
+                    label = "Your Name",
+                    placeholder = "Host Name"
                 )
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(32.dp))
 
-                // Room Code Section
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(text = "Room Code", style = MaterialTheme.typography.labelLarge)
+                // Room Code Display
+                TogetherCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                        Text("Room Code", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
                         Text(
                             text = roomCode,
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.displayMedium,
+                            fontWeight = FontWeight.Black,
+                            color = TogetherPrimary,
                             letterSpacing = 4.sp
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(32.dp))
 
-                // Max Participants
-                Text(
-                    text = "Max Participants: ${maxParticipants.toInt()}",
-                    style = MaterialTheme.typography.titleSmall
-                )
+                // Participants Slider
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Max Participants", style = MaterialTheme.typography.titleSmall, color = Color.White)
+                    Text("${maxParticipants.toInt()}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = TogetherPrimary)
+                }
+                
                 Slider(
                     value = maxParticipants,
                     onValueChange = { maxParticipants = it },
                     valueRange = 2f..10f,
-                    steps = 7
+                    steps = 7,
+                    colors = SliderDefaults.colors(
+                        thumbColor = TogetherPrimary,
+                        activeTrackColor = TogetherPrimary,
+                        inactiveTrackColor = TogetherSurface
+                    )
                 )
 
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(48.dp))
 
-                // Buttons
-                Button(
+                TogetherButton(
+                    text = "Create Room",
                     onClick = {
                         val roomId = UUID.randomUUID().toString()
                         val hostParticipant = com.together.app.model.Participant(
@@ -180,22 +181,41 @@ fun CreateRoomScreen(
                         )
                         roomViewModel.createRoom(newRoom)
                         navController.navigate("waiting_room/$roomId")
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text("Start Room", fontSize = 18.sp)
-                }
+                    }
+                )
 
-                Spacer(modifier = Modifier.height(12.dp))
-
-                TextButton(
-                    onClick = { navController.popBackStack() },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Cancel")
-                }
+                Spacer(modifier = Modifier.height(32.dp))
             }
         }
+    }
+}
+
+@Composable
+fun TogetherTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    placeholder: String
+) {
+    Column {
+        Text(text = label, style = MaterialTheme.typography.labelMedium, color = Color.Gray, modifier = Modifier.padding(start = 4.dp, bottom = 8.dp))
+        TextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp)),
+            placeholder = { Text(placeholder, color = Color.DarkGray) },
+            colors = TextFieldDefaults.colors(
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White,
+                focusedContainerColor = TogetherSurface,
+                unfocusedContainerColor = TogetherSurface,
+                disabledContainerColor = TogetherSurface,
+                cursorColor = TogetherPrimary,
+                focusedIndicatorColor = Color.Transparent,
+                unfocusedIndicatorColor = Color.Transparent,
+            )
+        )
     }
 }

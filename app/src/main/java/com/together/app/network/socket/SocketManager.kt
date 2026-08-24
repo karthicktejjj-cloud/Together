@@ -20,6 +20,10 @@ class SocketManager private constructor() {
     }
 
     fun startServer(port: Int) {
+        if (server != null) {
+            android.util.Log.d("SocketManager", "Server already running on port $port")
+            return
+        }
         android.util.Log.d("SocketManager", "startServer on port $port")
         stopAll()
         server = SocketServer(port) { message ->
@@ -30,6 +34,10 @@ class SocketManager private constructor() {
     }
 
     fun startClient(host: String, port: Int) {
+        if (client != null) {
+            android.util.Log.d("SocketManager", "Client already connected to $host:$port")
+            return
+        }
         android.util.Log.d("SocketManager", "startClient connecting to $host:$port")
         stopAll()
         client = SocketClient(host, port) { message ->

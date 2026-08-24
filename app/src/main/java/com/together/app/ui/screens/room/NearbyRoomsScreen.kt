@@ -1,23 +1,32 @@
 package com.together.app.ui.screens.room
 
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
+import com.together.app.ui.components.RoomCard
+import com.together.app.ui.theme.TogetherBackground
+import com.together.app.ui.theme.TogetherPrimary
+import com.together.app.ui.theme.TogetherSurface
 import com.together.app.viewmodel.DiscoveryViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -36,69 +45,65 @@ fun NearbyRoomsScreen(
     }
 
     Scaffold(
+        containerColor = TogetherBackground,
         topBar = {
-            TopAppBar(
-                title = { Text("Nearby Rooms") },
+            CenterAlignedTopAppBar(
+                title = { Text("Nearby Rooms", fontWeight = FontWeight.Bold, color = Color.White) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
                     }
-                }
+                },
+                actions = {
+                    IconButton(onClick = { 
+                        viewModel.stopDiscovery()
+                        viewModel.startDiscovery()
+                    }) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color.White)
+                    }
+                },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent)
             )
         }
     ) { paddingValues ->
-        if (rooms.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator()
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("Scanning for rooms...")
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+        ) {
+            if (rooms.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    ScanningAnimation()
                 }
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-                    .padding(16.dp)
-            ) {
-                items(rooms) { room ->
-                    Card(
-                        onClick = {
-                            navController.navigate("join_room/${room.roomCode}/${room.ipAddress}/${room.port}")
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 8.dp)
-                    ) {
-                        ListItem(
-                            headlineContent = { Text(room.roomName, fontWeight = FontWeight.Bold) },
-                            supportingContent = {
-                                Column {
-                                    Text("Host: ${room.hostName}")
-                                    Text("Device: ${room.deviceName}", style = MaterialTheme.typography.bodySmall)
-                                }
-                            },
-                            leadingContent = {
-                                Icon(Icons.Default.Wifi, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            },
-                            trailingContent = {
-                                Surface(
-                                    color = MaterialTheme.colorScheme.secondaryContainer,
-                                    shape = MaterialTheme.shapes.small
-                                ) {
-                                    Text(
-                                        text = room.roomCode,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                        style = MaterialTheme.typography.labelLarge,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .weight(1f)
+                        .padding(horizontal = 20.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    contentPadding = PaddingValues(bottom = 32.dp, top = 16.dp)
+                ) {
+                    item {
+                        Text(
+                            text = "Found ${rooms.size} rooms near you",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = Color.Gray,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                    }
+                    items(rooms) { room ->
+                        RoomCard(
+                            roomName = room.roomName,
+                            hostName = room.hostName,
+                            roomCode = room.roomCode,
+                            onClick = {
+                                navController.navigate("join_room/${room.roomCode}/${room.ipAddress}/${room.port}")
                             }
                         )
                     }
@@ -107,3 +112,68 @@ fun NearbyRoomsScreen(
         }
     }
 }
+
+@Composable
+fun ScanningAnimation() {
+    val infiniteTransition = rememberInfiniteTransition(label = "scanning")
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 0.5f,
+        targetValue = 1.5f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000, easing = LinearOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "scale"
+    )
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.5f,
+        targetValue = 0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000, easing = LinearOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "alpha"
+    )
+
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(contentAlignment = Alignment.Center) {
+            Box(
+                modifier = Modifier
+                    .size(200.dp)
+                    .clip(CircleShape)
+                    .background(TogetherPrimary.copy(alpha = alpha))
+                    .align(Alignment.Center)
+                    .scale(scale)
+            )
+            Surface(
+                modifier = Modifier.size(80.dp),
+                shape = CircleShape,
+                color = TogetherSurface,
+                border = androidx.compose.foundation.BorderStroke(2.dp, TogetherPrimary)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text("📡", fontSize = 32.sp)
+                }
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(48.dp))
+        
+        Text(
+            text = "Searching for rooms...",
+            style = MaterialTheme.typography.titleMedium,
+            color = Color.White,
+            fontWeight = FontWeight.Bold
+        )
+        
+        Text(
+            text = "Make sure your friends are on the same Wi-Fi",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.Gray
+        )
+    }
+}
+
+private fun Modifier.scale(scale: Float): Modifier = this.then(
+    Modifier.graphicsLayer(scaleX = scale, scaleY = scale)
+)

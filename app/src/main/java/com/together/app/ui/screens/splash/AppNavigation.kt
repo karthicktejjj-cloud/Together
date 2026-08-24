@@ -66,7 +66,7 @@ fun AppNavigation() {
             )
         ) { backStackEntry ->
             val videoId = backStackEntry.arguments?.getLong("videoId") ?: 0L
-            VideoDetailsScreen(navController, videoViewModel, videoId)
+            VideoDetailsScreen(navController, videoViewModel, roomViewModel, videoId)
         }
 
         composable("create_room/{videoId}",
@@ -119,11 +119,8 @@ fun AppNavigation() {
                 }
             )
         ) { backStackEntry ->
-
-            val uri =
-                backStackEntry.arguments?.getString("videoUri") ?: ""
-
-            VideoPlayerScreen(uri)
+            val uri = backStackEntry.arguments?.getString("videoUri") ?: ""
+            VideoPlayerScreen(uri, roomViewModel)
         }
     }
 }

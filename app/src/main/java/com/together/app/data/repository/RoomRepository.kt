@@ -32,4 +32,8 @@ class RoomRepository {
     fun updateParticipants(participants: List<com.together.app.model.Participant>) {
         _currentRoom.value = _currentRoom.value?.copy(participants = participants)
     }
+
+    fun updateRoomStatus(status: com.together.app.model.RoomStatus) {
+        _currentRoom.value = _currentRoom.value?.copy(status = status)
+    }
 }

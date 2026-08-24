@@ -26,6 +26,10 @@ class RoomViewModel : ViewModel() {
     val currentRoom: StateFlow<Room?> = repository.currentRoom
     private var pendingRoomCode: String? = null
     private var pendingRoomName: String? = null
+    
+    // Coordination state
+    private val readyParticipants = mutableSetOf<String>()
+    private var isPreparing = false
 
     private val _navigationEvent = kotlinx.coroutines.flow.MutableSharedFlow<String>()
     val navigationEvent = _navigationEvent.asSharedFlow()
@@ -160,14 +164,128 @@ class RoomViewModel : ViewModel() {
                 val streamUrl = message.payload ?: return
                 android.util.Log.d("RoomViewModel", "STREAM_URL received: $streamUrl")
                 android.util.Log.d("STREAM_TRACE", "Guest received STREAM_URL=$streamUrl")
+                
+                // Instead of navigating immediately, we prepare
+                isPreparing = true
                 viewModelScope.launch {
                     val encodedUri = java.net.URLEncoder.encode(streamUrl, "UTF-8")
                     _navigationEvent.emit("player/$encodedUri")
                 }
             }
+            MessageType.PLAYER_READY -> {
+                handlePlayerReady(message.sender)
+            }
+            MessageType.SYNC_START -> {
+                handleSyncStart(message.payload)
+            }
+            MessageType.VIDEO_ENDED -> {
+                android.util.Log.d("Sync", "VIDEO_ENDED received from ${message.sender}")
+                repository.updateRoomStatus(com.together.app.model.RoomStatus.FINISHED)
+                viewModelScope.launch {
+                    _navigationEvent.emit("waiting_room/${currentRoom.value?.roomId}")
+                }
+            }
+            MessageType.REQUEST_NEXT_VIDEO_SELECTION -> {
+                android.util.Log.d("Sync", "REQUEST_NEXT_VIDEO_SELECTION received: ${message.payload}")
+                val newTitle = message.payload ?: "New Video"
+                
+                // Update room on Guest
+                currentRoom.value?.let { room ->
+                    val updatedRoom = room.copy(
+                        videoTitle = newTitle,
+                        status = com.together.app.model.RoomStatus.WAITING
+                    )
+                    repository.setCurrentRoom(updatedRoom)
+                    
+                    // Reset ready states
+                    val updatedParticipants = updatedRoom.participants.map { it.copy(isReady = it.isHost) }
+                    repository.updateParticipants(updatedParticipants)
+                }
+            }
             else -> {
                 android.util.Log.d("RoomViewModel", "Unhandled message type: ${message.type}")
             }
+        }
+    }
+
+    private val _playbackCommand = MutableSharedFlow<PlaybackCommand>()
+    val playbackCommand = _playbackCommand.asSharedFlow()
+
+    sealed class PlaybackCommand {
+        data class Start(val startTime: Long) : PlaybackCommand()
+    }
+
+    private fun handleSyncStart(payload: String?) {
+        android.util.Log.d("Sync", "Processing SYNC_START. Payload: $payload")
+        viewModelScope.launch {
+            _playbackCommand.emit(PlaybackCommand.Start(payload?.toLong() ?: 0L))
+        }
+    }
+
+    fun reportPlayerReady() {
+        val myId = socketManager.getClientId() ?: "Host"
+        android.util.Log.d("Sync", "Reporting PLAYER_READY from $myId")
+        
+        // If Host, we need to handle it locally because sendMessage only broadcasts to clients
+        val room = currentRoom.value
+        val isHost = room?.participants?.any { it.id == myId && it.isHost } == true
+        if (isHost) {
+            handlePlayerReady(myId)
+        }
+        
+        sendMessage(Message(MessageType.PLAYER_READY, myId))
+    }
+
+    private fun handlePlayerReady(participantId: String) {
+        val room = currentRoom.value ?: return
+        val myId = socketManager.getClientId() ?: "Host"
+        val isHost = room.participants.any { it.id == myId && it.isHost }
+        
+        if (isHost) {
+            android.util.Log.d("Sync", "Participant $participantId is ready for playback")
+            readyParticipants.add(participantId)
+            
+            // Wait for ALL participants (Host + Guests)
+            val allParticipantIds = room.participants.map { it.id }
+            if (readyParticipants.containsAll(allParticipantIds)) {
+                android.util.Log.d("Sync", "All participants ready. Sending SYNC_START.")
+                val startTime = System.currentTimeMillis().toString()
+                
+                // Handle locally for Host
+                handleSyncStart(startTime)
+                
+                sendMessage(Message(MessageType.SYNC_START, "SERVER", startTime))
+            } else {
+                android.util.Log.d("Sync", "Still waiting for some participants. Ready: ${readyParticipants.size}/${allParticipantIds.size}")
+            }
+        }
+    }
+
+    fun onVideoEnded() {
+        val room = currentRoom.value ?: return
+        val myId = socketManager.getClientId() ?: "Host"
+        val isHost = room.participants.any { it.id == myId && it.isHost }
+        
+        if (isHost) {
+            repository.updateRoomStatus(com.together.app.model.RoomStatus.FINISHED)
+            sendMessage(Message(MessageType.VIDEO_ENDED, "SERVER"))
+            viewModelScope.launch {
+                _navigationEvent.emit("waiting_room/${room.roomId}")
+            }
+        }
+    }
+    
+    fun resetRoomForNextVideo(keepVideo: Boolean) {
+        val room = currentRoom.value ?: return
+        if (keepVideo) {
+            // Just reset ready states to "Ready" for everyone to replay? 
+            // User says "Guest does NOT need to manually press Ready again"
+            // So we might just skip to startWatching again.
+        } else {
+            sendMessage(Message(MessageType.REQUEST_NEXT_VIDEO_SELECTION, "SERVER"))
+            repository.updateRoomStatus(com.together.app.model.RoomStatus.WAITING)
+            val updatedList = room.participants.map { it.copy(isReady = it.isHost) }
+            repository.updateParticipants(updatedList)
         }
     }
 
@@ -206,6 +324,19 @@ class RoomViewModel : ViewModel() {
         android.util.Log.d("RoomViewModel", "createRoom: ${room.roomName} (${room.roomId})")
         repository.createRoom(room)
     }
+
+    fun selectVideo(video: com.together.app.model.Video) {
+        val room = currentRoom.value ?: return
+        val updatedRoom = room.copy(
+            videoUri = video.uri,
+            videoTitle = video.title,
+            status = com.together.app.model.RoomStatus.WAITING
+        )
+        repository.createRoom(updatedRoom) // This replaces the room in repo and broadcasts
+        
+        // Broadcast new video info to guests
+        sendMessage(Message(MessageType.REQUEST_NEXT_VIDEO_SELECTION, "SERVER", video.title))
+    }
     
     fun generateRoomCode(): String {
         val code = repository.generateRoomCode()
@@ -216,20 +347,26 @@ class RoomViewModel : ViewModel() {
     fun startWatching(context: Context) {
         val room = currentRoom.value ?: return
         val videoUri = room.videoUri
-        android.util.Log.d("RoomViewModel", "Host starting playback and streaming: $videoUri")
+        android.util.Log.d("RoomViewModel", "Host preparing playback and streaming: $videoUri")
         
-        // Start Video Server on Host
-        videoServer = VideoServer(context, 8889)
+        readyParticipants.clear()
+        
+        // Start Video Server on Host if not already running
+        if (videoServer == null) {
+            videoServer = VideoServer(context, 8889)
+        }
+        videoServer?.stop()
         videoServer?.start(videoUri)
 
         val localIp = NetworkUtils.getLocalIpAddress(context) ?: "127.0.0.1"
         val streamUrl = "http://$localIp:8889/video"
         android.util.Log.d("STREAM_TRACE", "Host generated STREAM_URL=$streamUrl")
         
-        // Broadcast STREAM_URL to all guests
+        // Broadcast STREAM_URL to all guests to start their preparation
         sendMessage(Message(MessageType.STREAM_URL, "SERVER", streamUrl))
         
-        // Navigate host as well
+        // Host also prepares
+        isPreparing = true
         viewModelScope.launch {
             val encodedUri = java.net.URLEncoder.encode(videoUri.toString(), "UTF-8")
             _navigationEvent.emit("player/$encodedUri")
